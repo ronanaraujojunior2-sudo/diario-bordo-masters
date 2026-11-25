@@ -37,6 +37,5 @@ Bibliotecas por CDN: Chart.js 4.4.1 (gráficos) e SheetJS 0.18.5 (Excel).
 2. Aplicar `001_init.sql`, criar usuários no Supabase Auth (convite por e-mail) e trocar a camada `DB` de demonstração pela do Supabase.
 3. Testar RLS com usuários reais (as regras de negócio já foram testadas; as políticas RLS ainda não).
 4. Edição de registros próprios e correção administrativa com auditoria.
-5. Receber a planilha oficial e conferir o mapeamento de colunas.
-6. Importação histórica do sistema anterior (depende de exportação/backup do Firebase).
-7. Homologação e publicação definitiva; a troca do sistema antigo só com aprovação.
+5. Importação histórica do sistema anterior (depende de exportação/backup do Firebase).
+6. Homologação e publicação definitiva; a troca do sistema antigo só com aprovação.
