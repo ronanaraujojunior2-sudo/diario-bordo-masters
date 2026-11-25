@@ -28,8 +28,8 @@ Bibliotecas por CDN: Chart.js 4.4.1 (gráficos) e SheetJS 0.18.5 (Excel).
 - Liberação administrativa exige confirmação e justificativa, e fica na auditoria.
 - Última km = maior km de chegada entre as viagens de todos os usuários do veículo; nunca retrocede. Viagem nova não pode começar abaixo dela. Lacunas e retrocessos aparecem em "Precisa de atenção" sem alterar os registros originais.
 - Idempotência: cada formulário tem um ID único (clique repetido, recarga ou reenvio não duplicam). Abastecimento com mesmo veículo, data, hora e valor é recusado.
-- Importação no **mesmo layout do sistema anterior**: CSV do "Exportar CSV" (`;`, seções de viagens e abastecimentos) e planilha "Controle de Utilização Veículo". Prévia com novos, existentes, duplicados, conflitantes e rejeitados; nada é gravado sem confirmação.
-- Exportação: Excel no layout "Controle de Utilização Veículo", CSV reimportável no layout antigo e PDF (impressão do navegador).
+- Importação no **mesmo layout do sistema anterior**: CSV do "Exportar CSV" (`;`, seções de viagens e abastecimentos) e planilha "Controle de Utilização Veículo" (viagens nas linhas 4–22; abastecimentos na coluna ABASTECIMENTO como `dd/mm/aaaa — hh:mm — N litros — R$ V.`; vários arquivos "parteN" de uma vez). Validado com uma planilha real do Fiat Mobi: 12 viagens e 7 abastecimentos reconhecidos. Prévia com novos, existentes, duplicados, conflitantes e rejeitados; nada é gravado sem confirmação.
+- Exportação: Excel preenchendo a própria planilha-modelo `assets/modelo-diario-de-bordo.xlsx` (formatação preservada, 19 linhas por arquivo, nome `diario-bordo-inicio_fim-PLACA-parteN.xlsx`), CSV reimportável no layout antigo e PDF (impressão do navegador).
 
 ## Pendências (Prioridade 2 — consolidação)
 

@@ -604,16 +604,48 @@ function rRelatorios() {
   </header></section>`;
 }
 function dl(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
-function exportXlsx() {
-  if (!window.XLSX) return toast('Biblioteca de Excel indisponível sem conexão.');
-  const { T, A } = relData(), wb = XLSX.utils.book_new();
-  for (const v of DB.vehicles().filter(v => !S.rel.vid || v.id === S.rel.vid)) {
-    const t = T.filter(x => x.vehicle_id === v.id), lk = DB.lastKm(v.id).km;
-    const rows = [['Controle de Utilização Veículo', '', '', '', '', '', '', '', '', 'KM Troca Óleo: ' + (v.km_troca_oleo ?? '')], [`Veículo: ${v.nome}`, '', `Placa: ${v.placa}`, '', '', `Km Final: ${lk ?? ''}`, `Data Início: ${fd(S.rel.ini)}`, '', `Data Final: ${fd(S.rel.fim)}`, 'Data Troca Óleo:'], ['DATA', 'KM SAÍDA', 'KM CHEGADA', 'HORA SAÍDA', 'HORA CHEGADA', 'ORIGEM / DESTINO', 'NOME MOTORISTA\n(legível)', 'VISTO MOTORISTA', 'FINALIDADE', 'ABASTECIMENTO']];
-    t.forEach(r => rows.push([fd(r.data), r.km_saida, r.km_chegada, r.hora_saida, r.hora_chegada, r.origem_destino, r.motorista, r.visto ? 'OK' : '', r.finalidade, A.filter(a => a.trip_id === r.id).map(a => `${fd(a.data)} — ${a.hora} — ${nf(a.litros, 2)} litros — ${brl(a.total)}.`).join('\n')]));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), v.placa.replace(/\W/g, '').slice(0, 31));
-  }
-  XLSX.writeFile(wb, `diario-bordo-${S.rel.ini}-a-${S.rel.fim}.xlsx`);
+// Exportação no modelo original "Controle de Utilização Veículo" (assets/modelo-diario-de-bordo.xlsx):
+// a planilha-modelo é preenchida célula a célula, preservando formatação; 19 linhas (4 a 22) por arquivo, como no sistema anterior.
+const xmlEsc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function putCell(x, ref, v, num) {
+  const re = new RegExp(`<c r="${ref}"( s="\\d+")?(?: t="\\w+")?\\s*(?:/>|>[\\s\\S]*?</c>)`);
+  return x.replace(re, (_, st) => num ? `<c r="${ref}"${st || ''}><v>${v}</v></c>` : `<c r="${ref}"${st || ''} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`);
+}
+const serial = d => { const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? Math.round((Date.UTC(+m[1], m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 864e5) : null; };
+const linhaAb = a => `${fd(a.data)} — ${a.hora} — ${nf(a.litros, 2)} litros — R$ ${nf(a.total, 2)}.`;
+function itensExport(t, a) { // viagens com seus abastecimentos na coluna J; abastecimentos avulsos em linha própria, em ordem cronológica
+  const porT = new Map(); a.filter(x => x.trip_id && t.some(r => r.id === x.trip_id)).forEach(x => porT.set(x.trip_id, [...(porT.get(x.trip_id) || []), x]));
+  const it = [...t.map(r => ({ k: r.data + (r.hora_saida || ''), t: r, f: porT.get(r.id) || [] })), ...a.filter(x => !(x.trip_id && porT.has(x.trip_id))).map(x => ({ k: x.data + x.hora, t: null, f: [x] }))];
+  return it.sort((p, q) => p.k.localeCompare(q.k));
+}
+async function exportXlsx() {
+  if (!window.JSZip) return toast('Biblioteca de Excel indisponível sem conexão.');
+  try {
+    const tpl = await (await fetch('assets/modelo-diario-de-bordo.xlsx')).arrayBuffer(), { T, A } = relData(), out = [];
+    for (const v of DB.vehicles().filter(v => !S.rel.vid || v.id === S.rel.vid)) {
+      const I = itensExport(T.filter(x => x.vehicle_id === v.id), A.filter(x => x.vehicle_id === v.id)); if (!I.length) continue;
+      const partes = Math.ceil(I.length / 19), lk = DB.lastKm(v.id).km;
+      for (let p = 0; p < partes; p++) {
+        const z = await JSZip.loadAsync(tpl); let x = await z.file('xl/worksheets/sheet1.xml').async('string'), soma = 0;
+        x = putCell(x, 'A2', 'Veículo: ' + v.nome.toUpperCase()); x = putCell(x, 'C2', 'Placa: ' + v.placa); x = putCell(x, 'F2', 'Km Final: ' + (lk ?? ''));
+        x = putCell(x, 'G2', 'Data Início:  ' + fd(S.rel.ini)); x = putCell(x, 'I2', 'Data Final: ' + fd(S.rel.fim));
+        x = putCell(x, 'J1', 'KM Troca Óleo:' + (v.km_troca_oleo ? ' ' + v.km_troca_oleo : '')); x = putCell(x, 'J2', 'Data Troca Óleo:' + (v.data_troca_oleo ? ' ' + fd(v.data_troca_oleo) : ''));
+        I.slice(p * 19, p * 19 + 19).forEach((o, i) => {
+          const n = 4 + i, r = o.t;
+          if (r) { const sd = serial(r.data); if (sd) x = putCell(x, 'A' + n, sd, 1); x = putCell(x, 'B' + n, r.km_saida, 1); x = putCell(x, 'C' + n, r.km_chegada, 1); soma += r.km_chegada;
+            [['D', r.hora_saida], ['E', r.hora_chegada], ['F', r.origem_destino], ['G', r.motorista], ['H', r.visto ? 'OK' : ''], ['I', r.finalidade]].forEach(([c, val]) => { if (val) x = putCell(x, c + n, val); }); }
+          if (o.f.length) x = putCell(x, 'J' + n, o.f.map(linhaAb).join('\n'));
+        });
+        x = x.replace('<f>SUM(C4:C22)</f><v>0</v>', `<f>SUM(C4:C22)</f><v>${soma}</v>`);
+        z.file('xl/worksheets/sheet1.xml', x);
+        out.push([`diario-bordo-${S.rel.ini}_${S.rel.fim}-${v.placa.replace(/\W/g, '')}${partes > 1 ? '-parte' + (p + 1) : ''}.xlsx`, await z.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })]);
+      }
+    }
+    if (!out.length) return toast('Nenhum registro no período para exportar.');
+    if (out.length === 1) return dl(out[0][1], out[0][0]);
+    const zz = new JSZip(); out.forEach(([n, b]) => zz.file(n, b)); dl(await zz.generateAsync({ type: 'blob' }), `diario-bordo-${S.rel.ini}_${S.rel.fim}.zip`);
+    toast(`${out.length} planilhas geradas no .zip (uma por veículo e por bloco de 19 linhas).`);
+  } catch (e) { toast('Falha ao exportar o Excel: ' + e.message); }
 }
 function exportCsv() { // mesmo layout do "Exportar CSV" do sistema anterior (reimportável)
   const { T, A } = relData(), q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -720,19 +752,25 @@ function parseCsvAntigo(text) {
   });
   return { V, A, rej };
 }
-function parseXlsxModelo(wb) { // planilha "Controle de Utilização Veículo": A2 veículo, C2 placa, cabeçalho na linha 3
-  const V = [], rej = [];
+const RX_AB = /(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[—–-]\s*(\d{1,2}:\d{2})\s*[—–-]\s*([\d.,]+)\s*litros?\s*[—–-]\s*R\$\s*([\d.,]+)/gi;
+function parseXlsxModelo(wb) { // planilha "Controle de Utilização Veículo": A2 veículo, C2 placa, cabeçalho na linha 3, abastecimentos na coluna J
+  const V = [], A = [], rej = [];
   for (const nm of wb.SheetNames) {
     const g = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header: 1, raw: true, defval: '' });
     const veiculo = String(g[1]?.[0] || '').replace(/^Ve[ií]culo:\s*/i, '').trim(), placa = String(g[1]?.[2] || '').replace(/^Placa:\s*/i, '').trim();
     const hi = g.findIndex(r => String(r[0]).trim().toUpperCase() === 'DATA'); if (hi < 0) { rej.push({ ln: '-', tipo: 'Planilha', motivo: `Aba "${nm}" sem cabeçalho DATA / KM SAÍDA`, raw: '' }); continue; }
     for (let i = hi + 1; i < g.length; i++) {
-      const r = g[i]; if (!r.slice(0, 9).some(x => String(x).trim())) continue;
+      const r = g[i], ln = `${nm}!${i + 1}`, jt = String(r[9] ?? '').trim();
+      if (jt) { let m, ok = 0; RX_AB.lastIndex = 0;
+        while ((m = RX_AB.exec(jt))) { ok++; const litros = impNum(m[3]), total = impNum(m[4]); A.push({ ln: ln + ' (J)', veiculo, placa, data: impData(m[1]), hora: m[2].padStart(5, '0'), km: null, posto: '', combustivel: 'Outro', litros, preco_litro: litros > 0 ? Math.round(total / litros * 1000) / 1000 : null, total, obs: 'Importado da coluna ABASTECIMENTO', modalidade: 'avulso' }); }
+        if (!ok) rej.push({ ln: ln + ' (J)', tipo: 'Abastecimento', motivo: 'Texto fora do padrão "dd/mm/aaaa — hh:mm — N litros — R$ V."', raw: jt });
+      }
+      if (!r.slice(0, 9).some(x => String(x).trim())) continue;
       const data = impData(r[0]); if (!data && (String(r[1]).trim() === '' || impNum(r[1]) == null)) continue; // linhas de total/observação
-      V.push({ ln: `${nm}!${i + 1}`, veiculo, placa, data, km_saida: impNum(r[1]), km_chegada: impNum(r[2]), hora_saida: impHora(r[3]), hora_chegada: impHora(r[4]), origem_destino: String(r[5]).trim(), motorista: String(r[6]).trim(), visto: /^(OK|SIM|X|TRUE|1)$/i.test(String(r[7]).trim()), finalidade: String(r[8]).trim(), usuario_texto: '' });
+      V.push({ ln, veiculo, placa, data, km_saida: impNum(r[1]), km_chegada: impNum(r[2]), hora_saida: impHora(r[3]), hora_chegada: impHora(r[4]), origem_destino: String(r[5]).trim(), motorista: String(r[6]).trim(), visto: /^(OK|SIM|X|TRUE|1)$/i.test(String(r[7]).trim()), finalidade: String(r[8]).trim(), usuario_texto: '' });
     }
   }
-  return { V, A: [], rej };
+  return { V, A, rej };
 }
 function classify({ V, A, rej }) {
   const byPl = p => DB.d.vehicles.find(v => npl(v.placa) === npl(p)), out = [];
@@ -769,13 +807,16 @@ function rImportacao() {
   const P = S.importPreview, cnt = k => P ? P.rows.filter(r => r.st === k).length : 0;
   afterRender.importacao = () => {
     $('#imp-file').onchange = async e => {
-      const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+      const fs = [...(e.target.files || [])]; e.target.value = ''; if (!fs.length) return;
       try {
-        let parsed;
-        if (/\.xlsx?$/i.test(f.name)) { if (!window.XLSX) throw Error('Leitor de Excel indisponível sem conexão.'); parsed = parseXlsxModelo(XLSX.read(await f.arrayBuffer(), { type: 'array' })); }
-        else parsed = parseCsvAntigo(await f.text());
+        const parsed = { V: [], A: [], rej: [] };
+        for (const f of fs) {
+          const p = /\.xlsx?$/i.test(f.name) ? (window.XLSX ? parseXlsxModelo(XLSX.read(await f.arrayBuffer(), { type: 'array' })) : (() => { throw Error('Leitor de Excel indisponível sem conexão.'); })()) : parseCsvAntigo(await f.text());
+          const tag = fs.length > 1 ? f.name.replace(/\.\w+$/, '') + ' · ' : '';
+          ['V', 'A', 'rej'].forEach(k => p[k].forEach(r => parsed[k].push({ ...r, ln: tag + r.ln })));
+        }
         if (!parsed.V.length && !parsed.A.length && !parsed.rej.length) throw Error('Não encontrei viagens ou abastecimentos no layout do Diário de Bordo.');
-        S.importPreview = { nome: f.name, rows: classify(parsed) }; route();
+        S.importPreview = { nome: fs.length > 1 ? `${fs.length} arquivos` : fs[0].name, rows: classify(parsed) }; route();
       } catch (x) { toast(x.message); }
     };
     $('#imp-ok')?.addEventListener('click', () => dialog(`<div class="dh"><h2>Confirmar importação?</h2></div><div class="dialog-body"><p>Serão gravados <b>${cnt('novo')}</b> registros novos na <b>base de demonstração</b>. Existentes, duplicados, conflitantes e rejeitados não serão gravados.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn" id="o">Importar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = () => { doImport(); closeDlg(); }; }));
@@ -785,9 +826,9 @@ function rImportacao() {
     <div class="grid g2">
       <div style="display:grid;gap:10px;align-content:start">
         <p style="margin:0">Aceita os mesmos arquivos do sistema anterior, sem mudar o formato:</p>
-        <ul style="margin:0;padding-left:18px;display:grid;gap:4px"><li><b>CSV</b> gerado em "Exportar CSV" (separador ponto e vírgula, seções de viagens e de abastecimentos).</li><li><b>Planilha Excel</b> "Controle de Utilização Veículo" (veículo em A2, placa em C2, cabeçalho DATA / KM SAÍDA na linha 3, uma aba por veículo).</li></ul>
+        <ul style="margin:0;padding-left:18px;display:grid;gap:4px"><li><b>CSV</b> gerado em "Exportar CSV" (separador ponto e vírgula, seções de viagens e de abastecimentos).</li><li><b>Planilha Excel</b> "Controle de Utilização Veículo" (veículo em A2, placa em C2, cabeçalho DATA / KM SAÍDA na linha 3, viagens nas linhas seguintes e abastecimentos na coluna ABASTECIMENTO no formato "dd/mm/aaaa — hh:mm — N litros — R$ V."). Pode enviar vários arquivos de uma vez (partes 1, 2, 3…).</li></ul>
         <p class="muted" style="margin:0;font-size:12px">Nada é gravado antes da sua confirmação. Duplicidade é verificada pela mesma chave do sistema anterior: placa, data, km de saída e chegada, horários, origem/destino e motorista.</p>
-        <label class="btn" style="justify-self:start">${ico('upload')}Selecionar arquivo<input id="imp-file" type="file" accept=".csv,.xlsx,.xls,text/csv" hidden></label>
+        <label class="btn" style="justify-self:start">${ico('upload')}Selecionar arquivo<input id="imp-file" type="file" multiple accept=".csv,.xlsx,.xls,text/csv" hidden></label>
       </div>
       <div class="tw"><table><thead><tr><th>Seção</th><th>Colunas preservadas</th></tr></thead><tbody>
         <tr><td>Viagens</td><td style="font-size:12px">Veículo; Placa; DATA; KM SAÍDA; KM CHEGADA; HORA SAÍDA; HORA CHEGADA; ORIGEM / DESTINO; NOME MOTORISTA (legível); VISTO MOTORISTA; FINALIDADE; USUÁRIO; KM RODADO</td></tr>
