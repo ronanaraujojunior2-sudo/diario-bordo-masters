@@ -21,6 +21,19 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and papel = 'admin' and ativo);
 $$;
 
+-- Perfil criado automaticamente quando o administrador cadastra o acesso em Authentication → Add user.
+-- Login = parte do e-mail antes do @ (ex.: ronan@diario.masters → RONAN). Todos entram como funcionário.
+-- Depois de criar o acesso MASTERS, rode uma vez:  update public.profiles set papel = 'admin' where usuario = 'MASTERS';
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into profiles(id, usuario, nome)
+  values (new.id, upper(split_part(new.email, '@', 1)), initcap(split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end $$;
+create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
+
 -- ───────────────────────── Veículos ─────────────────────────
 create table public.vehicles (
   id                  uuid primary key default gen_random_uuid(),
@@ -228,7 +241,8 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Perfis: cada um vê o próprio; admin vê e gerencia todos.
-create policy profiles_sel on public.profiles for select using (id = auth.uid() or is_admin());
+-- Nomes e logins são visíveis a todos os usuários autenticados (para exibir quem está com cada veículo).
+create policy profiles_sel on public.profiles for select to authenticated using (true);
 create policy profiles_adm on public.profiles for all using (is_admin()) with check (is_admin());
 
 -- Veículos: leitura dos autorizados; escrita só admin.

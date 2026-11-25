@@ -224,19 +224,20 @@ function renderLogin() {
     </section>
     <section class="login-form">
       <form id="lf" autocomplete="on">
-        <div><h2 style="font-size:22px">Entrar</h2><p class="muted" style="margin:4px 0 0">Ambiente de demonstração. Use um dos perfis abaixo com a senha <b class="mono">demo</b>.</p></div>
-        <div class="demo-users">${DB.d.users.filter(u => u.ativo).map(u => `<button type="button" data-u="${esc(u.usuario)}">${esc(u.usuario)}${u.papel === 'admin' ? ' · admin' : ''}</button>`).join('')}</div>
+        <div><h2 style="font-size:22px">Entrar</h2>${window.CLOUD ? '' : '<p class="muted" style="margin:4px 0 0">Ambiente de demonstração. Use um dos perfis abaixo com a senha <b class="mono">demo</b>.</p>'}</div>
+        ${window.CLOUD ? '' : `<div class="demo-users">${DB.d.users.filter(u => u.ativo).map(u => `<button type="button" data-u="${esc(u.usuario)}">${esc(u.usuario)}${u.papel === 'admin' ? ' · admin' : ''}</button>`).join('')}</div>`}
         <label class="fld">Usuário<input id="l-user" autocomplete="username" autocapitalize="characters" placeholder="Ex.: RONAN"></label>
-        <label class="fld">Senha<input id="l-pass" type="password" autocomplete="current-password" placeholder="demo"></label>
+        <label class="fld">Senha<input id="l-pass" type="password" autocomplete="current-password" placeholder="${window.CLOUD ? 'Sua senha' : 'demo'}"></label>
         <div id="l-err"></div>
         <button class="btn" style="justify-content:center">Entrar</button>
-        <p class="muted" style="font-size:12px;margin:0">Na versão oficial, o acesso será pelo Supabase Auth, com sessão persistente entre aberturas do aplicativo.</p>
+        ${window.CLOUD ? '' : '<p class="muted" style="font-size:12px;margin:0">Na versão oficial, o acesso será pelo Supabase Auth, com sessão persistente entre aberturas do aplicativo.</p>'}
       </form>
     </section>
   </div>`;
   $$('.demo-users button').forEach(b => b.onclick = () => { $('#l-user').value = b.dataset.u; $('#l-pass').value = 'demo'; $('#l-pass').focus(); });
-  $('#lf').onsubmit = e => {
+  $('#lf').onsubmit = async e => {
     e.preventDefault();
+    if (window.CLOUD) { const bt = $('#lf button.btn'); bt.disabled = true; try { await CLOUD.login($('#l-user').value, $('#l-pass').value); location.hash = 'painel'; renderShell(); } catch (x) { bt.disabled = false; $('#l-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(x.message)}</div>`; } return; }
     const u = DB.d.users.find(x => x.usuario === npl($('#l-user').value) && x.ativo);
     if (!u || $('#l-pass').value !== 'demo') { $('#l-err').innerHTML = `<div class="msg err">${ico('alert')}Usuário ou senha incorretos. Na demonstração a senha é "demo".</div>`; return; }
     S.user = u; store.set(SESSION_KEY, u.id); DB.audit('LOGIN', 'usuario', u.id, `${u.nome} entrou (demonstração).`); DB.save();
@@ -270,14 +271,14 @@ function renderShell() {
       <div class="foot">
         <div class="me"><span class="avatar">${esc(S.user.nome.split(' ').map(p => p[0]).slice(0, 2).join(''))}</span><span class="who"><b>${esc(S.user.nome)}</b><span>${isAdmin() ? 'Administrador' : 'Funcionário'} · ${esc(S.user.usuario)}</span></span></div>
         <button class="lnk" id="collapse" title="Recolher menu">${ico('panel')}<span class="lbl">Recolher menu</span></button>
-        <button class="lnk" id="reset" title="Restaurar base de demonstração">${ico('reset')}<span class="lbl">Restaurar demo</span></button>
+        <button class="lnk" id="reset" title="Restaurar base de demonstração" ${window.CLOUD ? 'hidden' : ''}>${ico('reset')}<span class="lbl">Restaurar demo</span></button>
         <button class="lnk" id="logout" title="Sair">${ico('logout')}<span class="lbl">Sair</span></button>
       </div>
     </aside>
     <div class="main">
       <div class="top"><button class="iconbtn" id="burger" aria-label="Abrir menu">${ico('menu')}</button>
         <div class="crumbs"><small id="t-sub"></small><h1 id="t-title"></h1></div><div class="grow"></div>
-        <span class="mode-pill" title="Dados fictícios, isolados do sistema oficial">Demonstração</span></div>
+        ${window.CLOUD ? '' : '<span class="mode-pill" title="Dados fictícios, isolados do sistema oficial">Demonstração</span>'}</div>
       <main id="page" class="page"></main>
     </div>
     <nav class="bottom" aria-label="Navegação rápida">
@@ -289,7 +290,7 @@ function renderShell() {
   $('#collapse').onclick = () => { app.classList.toggle('collapsed'); store.set('dbm-side', app.classList.contains('collapsed') ? '1' : '0'); };
   $('#burger').onclick = $('#more').onclick = () => app.classList.add('open');
   $('#scrim').onclick = () => app.classList.remove('open');
-  $('#logout').onclick = () => { DB.audit('LOGOUT', 'usuario', S.user.id, `${S.user.nome} saiu.`); DB.save(); S.user = null; store.del(SESSION_KEY); renderLogin(); };
+  $('#logout').onclick = async () => { DB.audit('LOGOUT', 'usuario', S.user.id, `${S.user.nome} saiu.`); DB.save(); if (window.CLOUD) await CLOUD.logout().catch(() => { }); S.user = null; store.del(SESSION_KEY); renderLogin(); };
   $('#reset').onclick = () => dialog(`<div class="dh"><h2>Restaurar base de demonstração?</h2></div><div class="dialog-body"><p>Todos os registros feitos nesta demonstração, neste navegador, serão substituídos pela base fictícia original. O sistema oficial não é afetado.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn danger" id="o">Restaurar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = () => { DB.reset(); const u = DB.d.users.find(x => x.usuario === S.user.usuario); S.user = u; store.set(SESSION_KEY, u.id); closeDlg(); route(); toast('Base de demonstração restaurada.'); }; });
   route();
 }
@@ -334,8 +335,8 @@ function vehCard(v, actions = true) {
   </article>`;
 }
 function bindVehActions() {
-  $$('[data-ass]').forEach(b => b.onclick = () => { try { DB.assumir(b.dataset.ass); toast('Veículo assumido. Você já pode registrar viagens e abastecimentos.'); route(); } catch (e) { toast(e.message); } });
-  $$('[data-rel]').forEach(b => b.onclick = () => dialog(`<div class="dh"><h2>Liberar veículo?</h2></div><div class="dialog-body"><p>O veículo ficará disponível para outros funcionários autorizados.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn" id="o">Liberar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = () => { try { DB.liberar(b.dataset.rel); closeDlg(); toast('Veículo liberado.'); route(); } catch (e) { toast(e.message); } }; }));
+  $$('[data-ass]').forEach(b => b.onclick = async () => { try { await DB.assumir(b.dataset.ass); toast('Veículo assumido. Você já pode registrar viagens e abastecimentos.'); route(); } catch (e) { toast(e.message); } });
+  $$('[data-rel]').forEach(b => b.onclick = () => dialog(`<div class="dh"><h2>Liberar veículo?</h2></div><div class="dialog-body"><p>O veículo ficará disponível para outros funcionários autorizados.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn" id="o">Liberar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = async () => { try { await DB.liberar(b.dataset.rel); closeDlg(); toast('Veículo liberado.'); route(); } catch (e) { toast(e.message); } }; }));
 }
 function table(cols, rows, empty = 'Nenhum registro encontrado.') {
   if (!rows.length) return `<div class="tw"><div class="empty">${empty}</div></div>`;
@@ -440,7 +441,7 @@ function rRegistro() {
     const upd = () => { const s = +$('#t-kms').value, c = +$('#t-kmc').value; $('#t-rod').textContent = $('#t-kmc').value && c >= s ? `${nf(c - s)} km rodados` : ' '; };
     $('#t-kms').oninput = $('#t-kmc').oninput = upd;
     $('#t-hs').value = new Date().toTimeString().slice(0, 5);
-    f.onsubmit = e => {
+    f.onsubmit = async e => {
       e.preventDefault(); const btn = $('#t-save'); if (btn.disabled) return;
       const g = id => $('#' + id).value.trim(), lk = DB.lastKm(vid).km ?? 0;
       const t = { id: f.dataset.fid, vehicle_id: vid, user_id: S.user.id, data: g('t-data'), hora_saida: g('t-hs'), hora_chegada: g('t-hc'), km_saida: Number(g('t-kms')), km_chegada: Number(g('t-kmc')), origem_destino: g('t-od'), motorista: g('t-mot'), finalidade: g('t-fin'), visto: $('#t-visto').checked, usuario_texto: S.user.usuario, obs: g('t-obs'), origem: 'app', criado_em: new Date().toISOString() };
@@ -455,7 +456,7 @@ function rRegistro() {
       else if (!t.visto) err = 'Marque o visto do motorista para confirmar.';
       if (err) { $('#t-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(err)}</div>`; return; }
       const gap = t.km_saida - lk;
-      const go = () => { btn.disabled = true; try { const r = DB.addTrip(t); toast(r === 'repetido' ? 'Esta viagem já estava salva. Nada foi duplicado.' : 'Viagem salva. Última km atualizada.'); route(); } catch (x) { btn.disabled = false; $('#t-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(x.message)}</div>`; } };
+      const go = async () => { btn.disabled = true; try { const r = await DB.addTrip(t); toast(r === 'repetido' ? 'Esta viagem já estava salva. Nada foi duplicado.' : 'Viagem salva. Última km atualizada.'); route(); } catch (x) { btn.disabled = false; $('#t-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(x.message)}</div>`; } };
       if (gap > 0) dialog(`<div class="dh"><h2>KM de saída acima da última registrada</h2></div><div class="dialog-body"><p>Há <b>${nf(gap)} km</b> sem registro entre a última viagem (${nf(lk)} km) e esta saída (${nf(t.km_saida)} km). A viagem será salva e a diferença aparecerá em "Precisa de atenção".</p></div><div class="dialog-foot"><button class="btn sec" id="c">Corrigir</button><button class="btn" id="o">Salvar assim mesmo</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = () => { closeDlg(); go(); }; });
       else go();
     };
@@ -503,7 +504,7 @@ function vehicleDialog(v) {
     </div><div id="v-err"></div></div>
     <div class="dialog-foot"><button type="button" class="btn sec" id="c">Cancelar</button><button class="btn">Salvar</button></div></form>`, d => {
     $('#c', d).onclick = closeDlg;
-    $('#vf', d).onsubmit = e => { e.preventDefault(); try { DB.saveVehicle({ ...(v || {}), id: v?.id, nome: $('#v-nome').value.trim(), modelo: $('#v-mod').value.trim(), placa: $('#v-pl').value.trim().toUpperCase(), km_inicial: Number($('#v-km').value || 0), km_troca_oleo: $('#v-oleo').value ? Number($('#v-oleo').value) : null, responsavel: $('#v-resp').value || null, ativo: v ? $('#v-at').checked : true }); closeDlg(); toast('Veículo salvo.'); route(); } catch (x) { $('#v-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
+    $('#vf', d).onsubmit = async e => { e.preventDefault(); try { await DB.saveVehicle({ ...(v || {}), id: v?.id, nome: $('#v-nome').value.trim(), modelo: $('#v-mod').value.trim(), placa: $('#v-pl').value.trim().toUpperCase(), km_inicial: Number($('#v-km').value || 0), km_troca_oleo: $('#v-oleo').value ? Number($('#v-oleo').value) : null, responsavel: $('#v-resp').value || null, ativo: v ? $('#v-at').checked : true }); closeDlg(); toast('Veículo salvo.'); route(); } catch (x) { $('#v-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
   });
 }
 
@@ -541,7 +542,7 @@ function rAbastecimento() {
     $('#a-hora').value = new Date().toTimeString().slice(0, 5);
     const calc = () => { const t = pbr($('#a-tot').value), p = pbr($('#a-prec').value); $('#a-lit').value = t > 0 && p > 0 ? nf(Math.round(t / p * 100) / 100, 2) : ''; };
     $('#a-tot').oninput = $('#a-prec').oninput = calc;
-    f.onsubmit = e => {
+    f.onsubmit = async e => {
       e.preventDefault(); const btn = $('#a-save'); if (btn.disabled) return;
       const t = pbr($('#a-tot').value), p = pbr($('#a-prec').value), km = $('#a-km').value === '' ? null : Number($('#a-km').value);
       let err = '';
@@ -552,7 +553,7 @@ function rAbastecimento() {
       if (err) { $('#a-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(err)}</div>`; return; }
       btn.disabled = true;
       try {
-        const r = DB.addFuel({ id: f.dataset.fid, vehicle_id: mine.vehicle_id, user_id: S.user.id, trip_id: $('#a-trip').value || null, data: $('#a-data').value, hora: $('#a-hora').value, km, posto: $('#a-posto').value.trim(), combustivel: $('#a-comb').value, litros: Math.round(t / p * 100) / 100, preco_litro: p, total: t, modalidade: $('#a-mod').value, obs: $('#a-obs').value.trim(), origem: 'app', criado_em: new Date().toISOString() });
+        const r = await DB.addFuel({ id: f.dataset.fid, vehicle_id: mine.vehicle_id, user_id: S.user.id, trip_id: $('#a-trip').value || null, data: $('#a-data').value, hora: $('#a-hora').value, km, posto: $('#a-posto').value.trim(), combustivel: $('#a-comb').value, litros: Math.round(t / p * 100) / 100, preco_litro: p, total: t, modalidade: $('#a-mod').value, obs: $('#a-obs').value.trim(), origem: 'app', criado_em: new Date().toISOString() });
         toast(r === 'repetido' ? 'Este abastecimento já estava salvo. Nada foi duplicado.' : 'Abastecimento salvo.'); route();
       } catch (x) { btn.disabled = false; $('#a-err').innerHTML = `<div class="msg err">${ico('alert')}${esc(x.message)}</div>`; }
     };
@@ -586,7 +587,7 @@ function rRelatorios() {
   if (S.relTab === 'frota') body = table([{ h: 'Veículo', f: r => vehLabel(r.v) }, { h: 'Viagens', n: 1, f: r => r.n }, { h: 'Dias em uso', n: 1, f: r => r.dias }, { h: 'Km rodados', n: 1, f: r => nf(r.km) }, { h: 'Litros', n: 1, f: r => nf(r.l, 1) }, { h: 'Gasto', n: 1, f: r => brl(r.tot) }, { h: 'Km/L (estim.)', n: 1, f: r => r.kml ? nf(r.kml, 1) : '—' }, { h: 'Última km', n: 1, f: r => nf(DB.lastKm(r.v.id).km) }], frota);
   if (S.relTab === 'usuarios') body = table([{ h: 'Funcionário', f: r => esc(r.u.nome) }, { h: 'Viagens', n: 1, f: r => r.n }, { h: 'Km rodados', n: 1, f: r => nf(r.km) }, { h: 'Abastecimentos', n: 1, f: r => r.na }, { h: 'Gasto', n: 1, f: r => brl(r.tot) }], porU);
   afterRender.relatorios = () => {
-    ['ini', 'fim', 'vid', 'uid'].forEach(k => { const el = $('#r-' + k); if (el) el.onchange = () => { S.rel[k] = el.value; route(); }; });
+    ['ini', 'fim', 'vid', 'uid'].forEach(k => { const el = $('#r-' + k); if (el) el.onchange = async () => { S.rel[k] = el.value; if (k === 'ini' && window.CLOUD) await CLOUD.ensureSince(el.value).catch(x => toast(x.message)); route(); }; });
     $$('[data-rt]').forEach(b => b.onclick = () => { S.relTab = b.dataset.rt; route(); });
     $$('[data-at]').forEach(b => b.onclick = () => { const n = new Date(); let i, f = today(); if (b.dataset.at === '7') i = isoDay(addDays(n, -6)); if (b.dataset.at === '30') i = isoDay(addDays(n, -29)); if (b.dataset.at === 'mes') i = isoDay(new Date(n.getFullYear(), n.getMonth(), 1)); if (b.dataset.at === 'ant') { i = isoDay(new Date(n.getFullYear(), n.getMonth() - 1, 1)); f = isoDay(new Date(n.getFullYear(), n.getMonth(), 0)); } Object.assign(S.rel, { ini: i, fim: f }); route(); });
     $('#x-xlsx')?.addEventListener('click', exportXlsx); $('#x-csv')?.addEventListener('click', exportCsv); $('#x-pdf')?.addEventListener('click', () => window.print());
@@ -680,7 +681,7 @@ function userDialog(u) {
     ${u ? `<label class="check"><input type="checkbox" id="u-at" ${u.ativo ? 'checked' : ''}> Usuário ativo</label>` : '<p class="muted" style="margin:0;font-size:12px">Perfil: Funcionário. Autorize veículos em Alocação de veículos.</p>'}
     <div id="u-err"></div></div><div class="dialog-foot"><button type="button" class="btn sec" id="c">Cancelar</button><button class="btn">Salvar</button></div></form>`, d => {
     $('#c', d).onclick = closeDlg;
-    $('#uf', d).onsubmit = e => { e.preventDefault(); try { DB.saveUser({ id: u?.id, usuario: $('#u-us').value, nome: $('#u-nm').value, ativo: u ? $('#u-at').checked : true }); closeDlg(); toast('Usuário salvo.'); route(); } catch (x) { $('#u-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
+    $('#uf', d).onsubmit = async e => { e.preventDefault(); try { await DB.saveUser({ id: u?.id, usuario: $('#u-us').value, nome: $('#u-nm').value, ativo: u ? $('#u-at').checked : true }); closeDlg(); toast('Usuário salvo.'); route(); } catch (x) { $('#u-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
   });
 }
 
@@ -695,7 +696,7 @@ function rLiberacoes() {
       <label class="check"><input type="checkbox" id="lc"> Confirmo a liberação. A operação ficará registrada na auditoria.</label><div id="l-err"></div></div>
       <div class="dialog-foot"><button type="button" class="btn sec" id="c">Cancelar</button><button class="btn danger">Liberar veículo</button></div></form>`, d => {
       $('#c', d).onclick = closeDlg;
-      $('#lf2', d).onsubmit = e => { e.preventDefault(); if (!$('#lc').checked) { $('#l-err').innerHTML = '<div class="msg err">Marque a confirmação.</div>'; return; } try { DB.liberar(v.id, $('#lj').value.trim()); closeDlg(); toast('Veículo liberado e registrado na auditoria.'); route(); } catch (x) { $('#l-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
+      $('#lf2', d).onsubmit = async e => { e.preventDefault(); if (!$('#lc').checked) { $('#l-err').innerHTML = '<div class="msg err">Marque a confirmação.</div>'; return; } try { await DB.liberar(v.id, $('#lj').value.trim()); closeDlg(); toast('Veículo liberado e registrado na auditoria.'); route(); } catch (x) { $('#l-err').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; } };
     });
   });
   return `<section class="card"><header><h2>Situação dos veículos</h2></header>
@@ -710,9 +711,9 @@ function rLiberacoes() {
 /* ───────────── 8. Alocação ───────────── */
 function rAlocacao() {
   const U = DB.d.users.filter(u => u.papel !== 'admin' && u.ativo), H = DB.d.audit.filter(a => a.acao === 'ALOCACAO');
-  afterRender.alocacao = () => $$('[data-save]').forEach(b => b.onclick = () => {
+  afterRender.alocacao = () => $$('[data-save]').forEach(b => b.onclick = async () => {
     const vid = b.dataset.save, box = b.closest('.veh');
-    try { DB.alocar(vid, $('select', box).value, $$('input[type=checkbox]:checked', box).map(c => c.value)); toast('Alocação salva.'); route(); } catch (x) { toast(x.message); }
+    try { await DB.alocar(vid, $('select', box).value, $$('input[type=checkbox]:checked', box).map(c => c.value)); toast('Alocação salva.'); route(); } catch (x) { toast(x.message); }
   });
   return `<div class="msg info">${ico('shield')}<span>O responsável padrão e os autorizados podem assumir o veículo. Uso simultâneo é bloqueado: um veículo só pode estar com uma pessoa por vez. MASTERS não aparece nas opções.</span></div>
   <div class="fleet" style="grid-template-columns:repeat(auto-fill,minmax(290px,1fr))">${DB.d.vehicles.map(v => { const s = statusOf(v); return `<article class="veh">
@@ -819,7 +820,7 @@ function rImportacao() {
         S.importPreview = { nome: fs.length > 1 ? `${fs.length} arquivos` : fs[0].name, rows: classify(parsed) }; route();
       } catch (x) { toast(x.message); }
     };
-    $('#imp-ok')?.addEventListener('click', () => dialog(`<div class="dh"><h2>Confirmar importação?</h2></div><div class="dialog-body"><p>Serão gravados <b>${cnt('novo')}</b> registros novos na <b>base de demonstração</b>. Existentes, duplicados, conflitantes e rejeitados não serão gravados.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn" id="o">Importar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = () => { doImport(); closeDlg(); }; }));
+    $('#imp-ok')?.addEventListener('click', () => dialog(`<div class="dh"><h2>Confirmar importação?</h2></div><div class="dialog-body"><p>Serão gravados <b>${cnt('novo')}</b> registros novos na <b>base de demonstração</b>. Existentes, duplicados, conflitantes e rejeitados não serão gravados.</p></div><div class="dialog-foot"><button class="btn sec" id="c">Cancelar</button><button class="btn" id="o">Importar</button></div>`, d => { $('#c', d).onclick = closeDlg; $('#o', d).onclick = async () => { closeDlg(); try { await doImport(); } catch (x) { toast(x.message); } }; }));
     $('#imp-cancel')?.addEventListener('click', () => { S.importPreview = null; route(); });
   };
   return `<section class="card"><header><h2>Importar arquivo do Diário de Bordo</h2></header>
@@ -858,6 +859,15 @@ function rAuditoria() {
 }
 
 /* ───────────── Início ───────────── */
-DB.load();
-{ const id = store.get(SESSION_KEY); S.user = DB.d.users.find(u => u.id === id && u.ativo) || null; }
-S.user ? renderShell() : renderLogin();
+(async function boot() {
+  if (window.CLOUD) { // modo oficial: aguarda a verificação da sessão antes de decidir entre login e aplicativo
+    $('#demoBand').hidden = true;
+    $('#root').innerHTML = `<div style="min-height:80vh;display:grid;place-items:center;color:var(--muted)">Verificando acesso…</div>`;
+    CLOUD.install(); DB.d = { users: [], vehicles: [], trips: [], fuelings: [], usage: [], audit: [] };
+    try { S.user = await CLOUD.start(); } catch (x) { S.user = null; toast(x.message); }
+    return S.user ? renderShell() : renderLogin();
+  }
+  DB.load();
+  { const id = store.get(SESSION_KEY); S.user = DB.d.users.find(u => u.id === id && u.ativo) || null; }
+  S.user ? renderShell() : renderLogin();
+})();
